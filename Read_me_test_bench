@@ -1,6 +1,0 @@
-• Add	three	numbers	10,	20	and	30	stored	in	processor	registers.	
-• The	steps:	
-– Initialize	register	R1	with	10.	
-– Initialize	register	R2	with	20.	
-– Initialize	register	R3	with	30.	
-– Add	the	three	numbers	and	store	the	sum	in	R4.	
