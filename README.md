@@ -1,4 +1,4 @@
-# verilog_project
+# Verilog_MIPS32_model
 
 **MIPS32** is a	popular	**Reduced	Instruction	Set	Architecture**	(RISC)	processor.  
 – It	is	a	32-bit	processor,	i.e.	can	operate	on	32	bits	of	data	at	a	time.  
