@@ -1,9 +1,9 @@
 # verilog_project
 
-**MIPS32** is a	popular	**Reduced	Instruction	Set	Architecture**	(RISC)	processor.
-– It	is	a	32-bit	processor,	i.e.	can	operate	on	32	bits	of	data	at	a	time.	
-I have done the pipeline	implementation	of	the	processor.	
-– Only	for	a	small	subset	of	the	instructions	(and	some	simplifying	assumptions).
+**MIPS32** is a	popular	**Reduced	Instruction	Set	Architecture**	(RISC)	processor.\
+– It	is	a	32-bit	processor,	i.e.	can	operate	on	32	bits	of	data	at	a	time.\	
+I have done the pipeline	implementation	of	the	processor.	\
+– Only	for	a	small	subset	of	the	instructions	(and	some	simplifying	assumptions).\
 
 
 
