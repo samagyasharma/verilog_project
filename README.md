@@ -1,9 +1,195 @@
-# Verilog_MIPS32_model
+# Enhanced MIPS32 Pipeline Implementation
 
-**MIPS32** is a	popular	**Reduced	Instruction	Set	Architecture**	(RISC)	processor.  
-– It	is	a	32-bit	processor,	i.e.	can	operate	on	32	bits	of	data	at	a	time.  
-I have done the pipeline	implementation	of	the	processor.  
-– Only	for	a	small	subset	of	the	instructions	(and	some	simplifying	assumptions).  
+This project implements a sophisticated MIPS32 pipeline processor with advanced features for high-performance computing. The implementation is modular and includes several modern processor features that enhance performance and reliability.
+
+## Project Structure
+
+```
+verilog_project/
+├── src/
+│   ├── modules/
+│   │   ├── hazard_detection_unit.v
+│   │   ├── forwarding_unit.v
+│   │   ├── branch_prediction_unit.v
+│   │   ├── cache_interface.v
+│   │   ├── performance_monitor.v
+│   │   └── exception_handler.v
+│   ├── pipeline.v
+│   └── test_bench.v
+└── README.md
+```
+
+## Key Features
+
+### 1. Pipeline Stages
+- Instruction Fetch (IF)
+- Instruction Decode (ID)
+- Execute (EX)
+- Memory Access (MEM)
+- Write Back (WB)
+
+### 2. Advanced Features
+
+#### Hazard Detection Unit (`hazard_detection_unit.v`)
+- Data Hazards: Detects RAW, WAR, and WAW hazards
+- Control Hazards: Handles branch and jump instructions
+- Structural Hazards: Manages resource conflicts
+- Real-time hazard detection and reporting
+
+#### Forwarding Unit (`forwarding_unit.v`)
+- Implements data forwarding to resolve data hazards
+- Supports forwarding from EX and MEM stages
+- Reduces pipeline stalls
+- Optimizes instruction throughput
+
+#### Branch Prediction (`branch_prediction_unit.v`)
+- 2-bit saturating counter predictor
+- Branch Target Buffer (BTB) for target address prediction
+- Branch history register for pattern recognition
+- Improves branch prediction accuracy
+
+#### Cache Interface (`cache_interface.v`)
+- 256-entry direct-mapped cache
+- 32-bit data width
+- Write-through policy
+- Cache hit/miss monitoring
+- Efficient memory access
+
+#### Performance Monitoring (`performance_monitor.v`)
+- Cycle count tracking
+- Instruction count
+- Branch misprediction statistics
+- Cache performance metrics
+- Real-time performance analysis
+
+#### Exception Handling (`exception_handler.v`)
+- System call support
+- Break instruction handling
+- Trap instruction support
+- Exception vector table
+- Pipeline flush control
+
+## Implementation Details
+
+### Pipeline Control
+- Two-phase clock system
+- Pipeline stall and flush control
+- Hazard detection and resolution
+- Forwarding path implementation
+
+### Memory Hierarchy
+- Register file (32 registers)
+- Cache memory (256 entries)
+- Main memory (1024 words)
+
+### Instruction Set
+- Arithmetic: ADD, SUB, AND, OR, SLT, MUL
+- Immediate: ADDI, SUBI, SLTI
+- Memory: LW, SW
+- Branch: BNEQZ, BEQZ
+- System: SYSCALL, BREAK, TRAP
+
+## Testing
+
+The test bench (`test_bench.v`) includes comprehensive tests for:
+1. Basic ALU operations with forwarding
+2. Load-Use hazard detection
+3. Branch prediction accuracy
+4. Cache hit/miss scenarios
+5. Exception handling
+
+## Performance Metrics
+
+The implementation tracks:
+- Total execution cycles
+- Instructions per cycle (IPC)
+- Branch prediction accuracy
+- Cache hit rate
+- Pipeline efficiency
+
+## Usage
+
+1. Clone the repository:
+```bash
+git clone https://github.com/samagyasharma/verilog_project.git
+cd verilog_project
+```
+
+2. Compile the Verilog files:
+```bash
+iverilog -o pipeline src/modules/*.v src/pipeline.v src/test_bench.v
+```
+
+3. Run the simulation:
+```bash
+vvp pipeline
+```
+
+4. View the results:
+- Performance metrics are displayed at the end of simulation
+- Register values are shown for verification
+- Exception events are logged during execution
+
+## Module Descriptions
+
+### Hazard Detection Unit
+- Detects data hazards between pipeline stages
+- Identifies control hazards from branches
+- Manages structural hazards for resource conflicts
+- Provides hazard type information for pipeline control
+
+### Forwarding Unit
+- Implements data forwarding paths
+- Resolves data hazards without stalling
+- Supports multiple forwarding sources
+- Optimizes pipeline throughput
+
+### Branch Prediction Unit
+- Implements 2-bit saturating counter
+- Maintains branch history
+- Predicts branch outcomes
+- Reduces branch penalty
+
+### Cache Interface
+- Direct-mapped cache implementation
+- Write-through policy
+- Cache hit/miss detection
+- Performance monitoring
+
+### Performance Monitor
+- Tracks execution statistics
+- Monitors pipeline efficiency
+- Reports performance metrics
+- Helps in optimization
+
+### Exception Handler
+- System call processing
+- Break instruction handling
+- Trap instruction support
+- Pipeline control during exceptions
+
+## Future Improvements
+
+1. Out-of-order execution
+2. Register renaming
+3. Speculative execution
+4. Multi-level cache hierarchy
+5. Superscalar implementation
+6. Advanced branch prediction
+7. Power optimization
+8. Area optimization
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is open source and available under the MIT License.
+
+## Author
+
+Samagya Sharma
 
 
 
@@ -64,7 +250,7 @@ e) WB	 :	Register	Write-back
 
 
 • **Basic	requirements**	for	pipelining	the	MIPS32	data	path:  	
-– We	should	be	able	to	start	a	new	instruction	every	clock	cycle.  	
+– We	should	be	able	tostart	a	new	instruction	every	clock	cycle.  	
 – Each	of	the	five	steps	mentioned	before	(IF,	ID,	EX,	MEM	and	WB)  	
 becomes	a	pipeline	stage.  	
 – Each	stage	must	finish	its	execution	within	one	clock	cycle.  	
