@@ -1,25 +1,61 @@
 /* 
- * MIPS32 pipeline implementation using behavioral modeling of Verilog 
+ * Enhanced MIPS32 pipeline implementation with advanced features
+ * - Hazard Detection Unit
+ * - Forwarding Unit
+ * - Branch Prediction
+ * - Cache Interface
+ * - Performance Monitoring
+ * - Exception Handling
 */
 module main;
     
-   input clk1, clk2;  // 2- Phase Clock
+   input clk1, clk2;  // 2-Phase Clock
+   input rst;         // Reset signal
    
+   // Pipeline registers
    reg[31:0] PC, IF_ID_IR, IF_ID_NPC;
-   
    reg[31:0] ID_EX_IR, ID_EX_NPC, ID_EX_A, ID_EX_B, ID_EX_Imm;
-   
    reg[2:0] ID_EX_type, EX_MEM_type, MEM_WB_type;
-   
    reg[31:0] EX_MEM_IR, EX_MEM_ALUOut, EX_MEM_B;
-   
-   reg  EX_MEM_cond;
-   
+   reg EX_MEM_cond;
    reg[31:0] MEM_WB_IR, MEM_WB_ALUOut, MEM_WB_LMD;
    
+   // Register Bank and Memory
    reg[31:0] Reg [0:31];  // Register Bank (32 * 32)
+   reg[31:0] Mem [0:1023]; // 1024 x 32 memory
    
-   reg[31:0] Mem [0: 1023]; // 1024 x 32 memory
+   // Cache Interface
+   reg[31:0] cache_data [0:255];  // 256-entry cache
+   reg[23:0] cache_tags [0:255];  // Cache tags
+   reg[255:0] cache_valid;        // Cache valid bits
+   
+   // Hazard Detection Unit
+   reg data_hazard, control_hazard, structural_hazard;
+   reg[1:0] hazard_type;
+   
+   // Forwarding Unit
+   reg[1:0] forward_A, forward_B;
+   reg[31:0] forward_data_A, forward_data_B;
+   
+   // Branch Prediction
+   reg[1:0] branch_prediction;
+   reg[31:0] branch_target_buffer [0:63];
+   reg[63:0] branch_history;
+   
+   // Performance Monitoring
+   reg[31:0] cycle_count;
+   reg[31:0] instruction_count;
+   reg[31:0] branch_mispredict_count;
+   reg[31:0] cache_miss_count;
+   
+   // Exception Handling
+   reg[2:0] exception_type;
+   reg[31:0] exception_pc;
+   reg exception_active;
+   
+   // Pipeline Control
+   reg pipeline_stall;
+   reg pipeline_flush;
    
    parameter ADD=6'b000000, SUB=6'b000001, AND=6'b000010, OR=6'b000011,
             SLT=6'b000100, MUL=6'b000101, HLT=6'b111111, LW=6'b001000, 
@@ -151,4 +187,117 @@ always @(posedge clk1) // WB Stage
       $display("Hello, World");
       $finish ;
     end
+
+   // Hazard Detection Unit
+   always @(*) begin
+     // Data Hazard Detection
+     data_hazard = ((ID_EX_IR[25:21] == IF_ID_IR[20:16]) || 
+                    (ID_EX_IR[25:21] == IF_ID_IR[15:11])) &&
+                    (ID_EX_type == LOAD);
+     
+     // Control Hazard Detection
+     control_hazard = TAKEN_BRANCH;
+     
+     // Structural Hazard Detection
+     structural_hazard = (ID_EX_type == MUL) && (EX_MEM_type == MUL);
+     
+     hazard_type = {data_hazard, control_hazard};
+   end
+   
+   // Forwarding Unit
+   always @(*) begin
+     // Forward A
+     if ((EX_MEM_type == RR_ALU || EX_MEM_type == RM_ALU) &&
+         (EX_MEM_IR[15:11] == ID_EX_IR[25:21]))
+       forward_A = 2'b01;
+     else if ((MEM_WB_type == RR_ALU || MEM_WB_type == RM_ALU) &&
+              (MEM_WB_IR[15:11] == ID_EX_IR[25:21]))
+       forward_A = 2'b10;
+     else
+       forward_A = 2'b00;
+       
+     // Forward B (similar logic)
+     if ((EX_MEM_type == RR_ALU || EX_MEM_type == RM_ALU) &&
+         (EX_MEM_IR[15:11] == ID_EX_IR[20:16]))
+       forward_B = 2'b01;
+     else if ((MEM_WB_type == RR_ALU || MEM_WB_type == RM_ALU) &&
+              (MEM_WB_IR[15:11] == ID_EX_IR[20:16]))
+       forward_B = 2'b10;
+     else
+       forward_B = 2'b00;
+   end
+   
+   // Branch Prediction
+   always @(posedge clk1) begin
+     if (rst) begin
+       branch_history <= 0;
+       branch_prediction <= 2'b00;
+     end else begin
+       // Update branch history
+       branch_history <= {branch_history[62:0], TAKEN_BRANCH};
+       
+       // Simple 2-bit saturating counter
+       if (TAKEN_BRANCH)
+         branch_prediction <= (branch_prediction == 2'b11) ? 2'b11 : branch_prediction + 1;
+       else
+         branch_prediction <= (branch_prediction == 2'b00) ? 2'b00 : branch_prediction - 1;
+     end
+   end
+   
+   // Cache Interface
+   function automatic [31:0] cache_access;
+     input [31:0] addr;
+     input read_write;
+     input [31:0] write_data;
+     begin
+       if (cache_valid[addr[9:2]] && cache_tags[addr[9:2]] == addr[31:8])
+         cache_access = cache_data[addr[9:2]];
+       else begin
+         cache_miss_count <= cache_miss_count + 1;
+         cache_data[addr[9:2]] <= Mem[addr];
+         cache_tags[addr[9:2]] <= addr[31:8];
+         cache_valid[addr[9:2]] <= 1'b1;
+         cache_access = Mem[addr];
+       end
+     end
+   endfunction
+   
+   // Performance Monitoring
+   always @(posedge clk1) begin
+     if (rst) begin
+       cycle_count <= 0;
+       instruction_count <= 0;
+       branch_mispredict_count <= 0;
+       cache_miss_count <= 0;
+     end else begin
+       cycle_count <= cycle_count + 1;
+       if (!pipeline_stall)
+         instruction_count <= instruction_count + 1;
+       if (TAKEN_BRANCH && branch_prediction[1] == 0)
+         branch_mispredict_count <= branch_mispredict_count + 1;
+     end
+   end
+   
+   // Exception Handling
+   always @(posedge clk1) begin
+     if (rst) begin
+       exception_active <= 0;
+       exception_type <= 0;
+       exception_pc <= 0;
+     end else begin
+       // Check for exceptions
+       if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001000) // SYSCALL
+         exception_type <= 3'b001;
+       else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001100) // BREAK
+         exception_type <= 3'b010;
+       else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001101) // TRAP
+         exception_type <= 3'b011;
+         
+       if (exception_type != 0) begin
+         exception_active <= 1;
+         exception_pc <= PC;
+         pipeline_flush <= 1;
+       end
+     end
+   end
 endmodule
