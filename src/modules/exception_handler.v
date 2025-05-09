@@ -21,6 +21,12 @@
 // - Handles cache-related exceptions (L1, L2, L3 misses)
 // - Manages cache coherence across levels
 // - Implements cache prefetching and victim selection
+//
+// Superscalar Implementation Support:
+// - Handles multiple instructions per cycle
+// - Manages instruction dependencies
+// - Implements instruction issue and retirement logic
+// - Supports parallel execution units
 module exception_handler(
     input clk,                    // System clock
     input rst,                    // Active high reset
@@ -40,6 +46,15 @@ module exception_handler(
     input [1:0] cache_level,      // Cache level (00:L1, 01:L2, 10:L3)
     input cache_prefetch_hit,     // Cache prefetch hit signal
     
+    // Superscalar-related inputs
+    input [31:0] ID_EX_IR_2,      // Second instruction in ID/EX stage
+    input [31:0] PC_2,            // PC for second instruction
+    input [2:0] issue_slot,       // Current issue slot being processed
+    input [1:0] dependency_type,  // Type of dependency detected
+    input [2:0] execution_unit,   // Execution unit assignment
+    input [1:0] instruction_type, // Type of instruction (ALU, MEM, BRANCH)
+    input [1:0] instruction_type_2, // Type of second instruction
+    
     output reg [2:0] exception_type,    // Type of exception detected
     output reg [31:0] exception_pc,     // PC value when exception occurred
     output reg exception_active,        // Indicates if an exception is active
@@ -53,7 +68,14 @@ module exception_handler(
     output reg [1:0] cache_operation,   // Cache operation type
     output reg [31:0] cache_addr,       // Cache operation address
     output reg cache_prefetch_enable,   // Enable cache prefetching
-    output reg cache_coherence_req      // Cache coherence request
+    output reg cache_coherence_req,     // Cache coherence request
+    
+    // Superscalar-related outputs
+    output reg [1:0] issue_ready,       // Indicates which instructions can issue
+    output reg [1:0] execution_ready,   // Indicates which execution units are ready
+    output reg [2:0] next_issue_slot,   // Next slot to issue instruction
+    output reg dependency_stall,        // Stall due to dependency
+    output reg [1:0] parallel_issue     // Enable parallel issue of instructions
 );
 
     // Local registers for speculative execution
@@ -66,11 +88,30 @@ module exception_handler(
     reg cache_operation_pending;
     reg [31:0] pending_cache_addr;
 
+    // Superscalar state registers
+    reg [1:0] current_issue_slot;
+    reg [1:0] execution_unit_busy;
+    reg [1:0] instruction_ready;
+    reg [1:0] dependency_detected;
+    reg [1:0] parallel_issue_enabled;
+
     // Cache operation types
     localparam CACHE_READ = 2'b00;
     localparam CACHE_WRITE = 2'b01;
     localparam CACHE_PREFETCH = 2'b10;
     localparam CACHE_INVALIDATE = 2'b11;
+
+    // Instruction types
+    localparam TYPE_ALU = 2'b00;
+    localparam TYPE_MEM = 2'b01;
+    localparam TYPE_BRANCH = 2'b10;
+    localparam TYPE_SPECIAL = 2'b11;
+
+    // Dependency types
+    localparam DEP_NONE = 2'b00;
+    localparam DEP_RAW = 2'b01;  // Read After Write
+    localparam DEP_WAR = 2'b10;  // Write After Read
+    localparam DEP_WAW = 2'b11;  // Write After Write
 
     // Exception handling logic
     always @(posedge clk) begin
@@ -96,12 +137,51 @@ module exception_handler(
             current_cache_level <= 0;
             cache_operation_pending <= 0;
             pending_cache_addr <= 0;
+            
+            // Reset superscalar-related signals
+            issue_ready <= 0;
+            execution_ready <= 0;
+            next_issue_slot <= 0;
+            dependency_stall <= 0;
+            parallel_issue <= 0;
+            current_issue_slot <= 0;
+            execution_unit_busy <= 0;
+            instruction_ready <= 0;
+            dependency_detected <= 0;
+            parallel_issue_enabled <= 0;
         end else begin
             // Default values
             restore_checkpoint <= 0;
             clear_speculative <= 0;
             cache_coherence_req <= 0;
+            dependency_stall <= 0;
             
+            // Handle superscalar instruction issue
+            if (dependency_type == DEP_NONE) begin
+                // No dependencies, can issue both instructions
+                parallel_issue <= 2'b11;
+                issue_ready <= 2'b11;
+                execution_ready <= 2'b11;
+            end else begin
+                // Handle dependencies
+                case (dependency_type)
+                    DEP_RAW: begin
+                        // Read After Write dependency
+                        dependency_stall <= 1;
+                        parallel_issue <= 2'b01;  // Issue only first instruction
+                    end
+                    DEP_WAR: begin
+                        // Write After Read dependency
+                        parallel_issue <= 2'b11;  // Can issue both
+                    end
+                    DEP_WAW: begin
+                        // Write After Write dependency
+                        dependency_stall <= 1;
+                        parallel_issue <= 2'b01;  // Issue only first instruction
+                    end
+                endcase
+            end
+
             // Handle cache-related operations
             if (l1_cache_miss || l2_cache_miss || l3_cache_miss) begin
                 cache_stall <= 1;
@@ -137,7 +217,8 @@ module exception_handler(
                 clear_speculative <= 1;
                 pipeline_flush <= 1;
                 speculative_active <= 0;
-                cache_stall <= 1; // Stall during recovery
+                cache_stall <= 1;
+                parallel_issue <= 0;  // Disable parallel issue during recovery
             end
             // Check for exceptions in the instruction
             else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001000) begin
@@ -148,6 +229,7 @@ module exception_handler(
                 pipeline_flush <= 1;
                 clear_speculative <= 1;
                 cache_stall <= 1;
+                parallel_issue <= 0;  // Disable parallel issue during exception
             end else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001100) begin
                 // BREAK exception
                 exception_type <= 3'b010;
@@ -156,6 +238,7 @@ module exception_handler(
                 pipeline_flush <= 1;
                 clear_speculative <= 1;
                 cache_stall <= 1;
+                parallel_issue <= 0;
             end else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001101) begin
                 // TRAP exception
                 exception_type <= 3'b011;
@@ -164,6 +247,7 @@ module exception_handler(
                 pipeline_flush <= 1;
                 clear_speculative <= 1;
                 cache_stall <= 1;
+                parallel_issue <= 0;
             end else begin
                 // No exception detected
                 exception_active <= 0;
@@ -179,6 +263,11 @@ module exception_handler(
                 // Handle cache prefetch hits
                 if (cache_prefetch_hit) begin
                     cache_prefetch_enable <= 1;
+                end
+                
+                // Update superscalar state
+                if (parallel_issue_enabled) begin
+                    next_issue_slot <= current_issue_slot + 1;
                 end
             end
         end
