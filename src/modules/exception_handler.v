@@ -27,6 +27,13 @@
 // - Manages instruction dependencies
 // - Implements instruction issue and retirement logic
 // - Supports parallel execution units
+//
+// Advanced Branch Prediction Support:
+// - Implements multiple branch prediction algorithms
+// - Supports global and local history
+// - Manages branch target buffer (BTB)
+// - Handles return stack buffer (RSB)
+// - Implements confidence-based prediction
 module exception_handler(
     input clk,                    // System clock
     input rst,                    // Active high reset
@@ -55,6 +62,15 @@ module exception_handler(
     input [1:0] instruction_type, // Type of instruction (ALU, MEM, BRANCH)
     input [1:0] instruction_type_2, // Type of second instruction
     
+    // Branch prediction inputs
+    input [31:0] branch_target,   // Predicted branch target
+    input [7:0] global_history,   // Global branch history
+    input [3:0] local_history,    // Local branch history
+    input [1:0] prediction_type,  // Type of prediction (00:Static, 01:Dynamic, 10:Hybrid)
+    input [1:0] confidence_level, // Confidence in prediction
+    input is_return_instruction,  // Indicates if instruction is a return
+    input [31:0] return_address,  // Return address for RSB
+    
     output reg [2:0] exception_type,    // Type of exception detected
     output reg [31:0] exception_pc,     // PC value when exception occurred
     output reg exception_active,        // Indicates if an exception is active
@@ -75,7 +91,16 @@ module exception_handler(
     output reg [1:0] execution_ready,   // Indicates which execution units are ready
     output reg [2:0] next_issue_slot,   // Next slot to issue instruction
     output reg dependency_stall,        // Stall due to dependency
-    output reg [1:0] parallel_issue     // Enable parallel issue of instructions
+    output reg [1:0] parallel_issue,    // Enable parallel issue of instructions
+    
+    // Branch prediction outputs
+    output reg [31:0] predicted_pc,     // Predicted next PC
+    output reg [7:0] updated_global_history, // Updated global history
+    output reg [3:0] updated_local_history,  // Updated local history
+    output reg [1:0] prediction_confidence,  // Confidence in prediction
+    output reg btb_update,              // Signal to update BTB
+    output reg rsb_push,                // Signal to push to RSB
+    output reg rsb_pop                  // Signal to pop from RSB
 );
 
     // Local registers for speculative execution
@@ -95,6 +120,16 @@ module exception_handler(
     reg [1:0] dependency_detected;
     reg [1:0] parallel_issue_enabled;
 
+    // Branch prediction state registers
+    reg [7:0] current_global_history;
+    reg [3:0] current_local_history;
+    reg [1:0] current_prediction_type;
+    reg [31:0] last_branch_pc;
+    reg [31:0] last_branch_target;
+    reg [1:0] last_prediction_confidence;
+    reg [31:0] return_stack [0:7];  // Return stack buffer
+    reg [2:0] rsb_pointer;          // RSB pointer
+
     // Cache operation types
     localparam CACHE_READ = 2'b00;
     localparam CACHE_WRITE = 2'b01;
@@ -112,6 +147,12 @@ module exception_handler(
     localparam DEP_RAW = 2'b01;  // Read After Write
     localparam DEP_WAR = 2'b10;  // Write After Read
     localparam DEP_WAW = 2'b11;  // Write After Write
+
+    // Branch prediction types
+    localparam PRED_STATIC = 2'b00;
+    localparam PRED_DYNAMIC = 2'b01;
+    localparam PRED_HYBRID = 2'b10;
+    localparam PRED_NEURAL = 2'b11;
 
     // Exception handling logic
     always @(posedge clk) begin
@@ -149,35 +190,113 @@ module exception_handler(
             instruction_ready <= 0;
             dependency_detected <= 0;
             parallel_issue_enabled <= 0;
+            
+            // Reset branch prediction signals
+            predicted_pc <= 0;
+            updated_global_history <= 0;
+            updated_local_history <= 0;
+            prediction_confidence <= 0;
+            btb_update <= 0;
+            rsb_push <= 0;
+            rsb_pop <= 0;
+            current_global_history <= 0;
+            current_local_history <= 0;
+            current_prediction_type <= PRED_STATIC;
+            last_branch_pc <= 0;
+            last_branch_target <= 0;
+            last_prediction_confidence <= 0;
+            rsb_pointer <= 0;
         end else begin
             // Default values
             restore_checkpoint <= 0;
             clear_speculative <= 0;
             cache_coherence_req <= 0;
             dependency_stall <= 0;
+            btb_update <= 0;
+            rsb_push <= 0;
+            rsb_pop <= 0;
+            
+            // Handle branch prediction
+            if (instruction_type == TYPE_BRANCH) begin
+                // Update prediction based on type
+                case (prediction_type)
+                    PRED_STATIC: begin
+                        // Static prediction (always taken/not taken)
+                        predicted_pc <= branch_target;
+                        prediction_confidence <= 2'b11;  // High confidence
+                    end
+                    PRED_DYNAMIC: begin
+                        // Dynamic prediction using history
+                        predicted_pc <= branch_target;
+                        updated_global_history <= {global_history[6:0], 1'b1};
+                        updated_local_history <= {local_history[2:0], 1'b1};
+                        prediction_confidence <= confidence_level;
+                    end
+                    PRED_HYBRID: begin
+                        // Hybrid prediction combining multiple methods
+                        if (confidence_level > 1) begin
+                            predicted_pc <= branch_target;
+                            updated_global_history <= {global_history[6:0], 1'b1};
+                            updated_local_history <= {local_history[2:0], 1'b1};
+                        end else begin
+                            predicted_pc <= PC + 4;  // Fall through
+                        end
+                        prediction_confidence <= confidence_level;
+                    end
+                    PRED_NEURAL: begin
+                        // Neural network based prediction
+                        predicted_pc <= branch_target;
+                        prediction_confidence <= confidence_level;
+                    end
+                endcase
+                
+                // Update BTB
+                btb_update <= 1;
+                last_branch_pc <= PC;
+                last_branch_target <= branch_target;
+                last_prediction_confidence <= confidence_level;
+            end
+            
+            // Handle return instructions
+            if (is_return_instruction) begin
+                rsb_pop <= 1;
+                predicted_pc <= return_stack[rsb_pointer];
+                rsb_pointer <= rsb_pointer - 1;
+            end
+            
+            // Handle branch misprediction
+            if (branch_mispredict) begin
+                restore_checkpoint <= 1;
+                restore_id <= checkpoint_id;
+                clear_speculative <= 1;
+                pipeline_flush <= 1;
+                speculative_active <= 0;
+                cache_stall <= 1;
+                parallel_issue <= 0;
+                
+                // Update prediction state
+                current_global_history <= {global_history[6:0], 1'b0};
+                current_local_history <= {local_history[2:0], 1'b0};
+                prediction_confidence <= 2'b00;  // Low confidence after misprediction
+            end
             
             // Handle superscalar instruction issue
             if (dependency_type == DEP_NONE) begin
-                // No dependencies, can issue both instructions
                 parallel_issue <= 2'b11;
                 issue_ready <= 2'b11;
                 execution_ready <= 2'b11;
             end else begin
-                // Handle dependencies
                 case (dependency_type)
                     DEP_RAW: begin
-                        // Read After Write dependency
                         dependency_stall <= 1;
-                        parallel_issue <= 2'b01;  // Issue only first instruction
+                        parallel_issue <= 2'b01;
                     end
                     DEP_WAR: begin
-                        // Write After Read dependency
-                        parallel_issue <= 2'b11;  // Can issue both
+                        parallel_issue <= 2'b11;
                     end
                     DEP_WAW: begin
-                        // Write After Write dependency
                         dependency_stall <= 1;
-                        parallel_issue <= 2'b01;  // Issue only first instruction
+                        parallel_issue <= 2'b01;
                     end
                 endcase
             end
@@ -188,7 +307,6 @@ module exception_handler(
                 cache_addr <= cache_miss_addr;
                 current_cache_level <= cache_level;
                 
-                // Determine cache operation based on level
                 case (cache_level)
                     2'b00: begin // L1 miss
                         cache_operation <= CACHE_READ;
@@ -210,18 +328,8 @@ module exception_handler(
                 cache_stall <= 0;
             end
 
-            // Handle branch misprediction
-            if (branch_mispredict) begin
-                restore_checkpoint <= 1;
-                restore_id <= checkpoint_id;
-                clear_speculative <= 1;
-                pipeline_flush <= 1;
-                speculative_active <= 0;
-                cache_stall <= 1;
-                parallel_issue <= 0;  // Disable parallel issue during recovery
-            end
             // Check for exceptions in the instruction
-            else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001000) begin
+            if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001000) begin
                 // SYSCALL exception
                 exception_type <= 3'b001;
                 exception_active <= 1;
@@ -229,7 +337,7 @@ module exception_handler(
                 pipeline_flush <= 1;
                 clear_speculative <= 1;
                 cache_stall <= 1;
-                parallel_issue <= 0;  // Disable parallel issue during exception
+                parallel_issue <= 0;
             end else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001100) begin
                 // BREAK exception
                 exception_type <= 3'b010;
