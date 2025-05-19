@@ -34,6 +34,20 @@
 // - Manages branch target buffer (BTB)
 // - Handles return stack buffer (RSB)
 // - Implements confidence-based prediction
+//
+// Power Optimization Support:
+// - Implements clock gating for inactive modules
+// - Supports multiple power domains
+// - Dynamic power management
+// - Sleep mode control
+// - Power state transitions
+//
+// Area Optimization Support:
+// - Resource sharing for common operations
+// - Optimized state encoding
+// - Efficient logic implementation
+// - Shared control signals
+// - Optimized register usage
 module exception_handler(
     input clk,                    // System clock
     input rst,                    // Active high reset
@@ -71,6 +85,13 @@ module exception_handler(
     input is_return_instruction,  // Indicates if instruction is a return
     input [31:0] return_address,  // Return address for RSB
     
+    // Power management inputs
+    input power_mode,             // Power mode control (0:Normal, 1:Low Power)
+    input sleep_request,          // Sleep mode request
+    input [1:0] power_domain,     // Power domain selection
+    input clock_enable,           // Clock enable signal
+    input power_gate_enable,      // Power gating enable
+    
     output reg [2:0] exception_type,    // Type of exception detected
     output reg [31:0] exception_pc,     // PC value when exception occurred
     output reg exception_active,        // Indicates if an exception is active
@@ -100,7 +121,14 @@ module exception_handler(
     output reg [1:0] prediction_confidence,  // Confidence in prediction
     output reg btb_update,              // Signal to update BTB
     output reg rsb_push,                // Signal to push to RSB
-    output reg rsb_pop                  // Signal to pop from RSB
+    output reg rsb_pop,                 // Signal to pop from RSB
+    
+    // Power management outputs
+    output reg module_active,           // Module activity status
+    output reg [1:0] current_power_mode, // Current power mode
+    output reg sleep_mode,              // Sleep mode status
+    output reg power_gate_control,      // Power gating control
+    output reg clock_gate_control       // Clock gating control
 );
 
     // Local registers for speculative execution
@@ -130,6 +158,25 @@ module exception_handler(
     reg [31:0] return_stack [0:7];  // Return stack buffer
     reg [2:0] rsb_pointer;          // RSB pointer
 
+    // Power management state registers
+    reg [1:0] power_state;
+    reg [3:0] activity_counter;
+    reg [1:0] power_domain_state;
+    reg clock_gated;
+    reg power_gated;
+
+    // Power states
+    localparam POWER_ACTIVE = 2'b00;
+    localparam POWER_IDLE = 2'b01;
+    localparam POWER_SLEEP = 2'b10;
+    localparam POWER_OFF = 2'b11;
+
+    // Power domains
+    localparam DOMAIN_ALWAYS_ON = 2'b00;
+    localparam DOMAIN_MAIN = 2'b01;
+    localparam DOMAIN_PERIPHERAL = 2'b10;
+    localparam DOMAIN_DEBUG = 2'b11;
+
     // Cache operation types
     localparam CACHE_READ = 2'b00;
     localparam CACHE_WRITE = 2'b01;
@@ -154,9 +201,54 @@ module exception_handler(
     localparam PRED_HYBRID = 2'b10;
     localparam PRED_NEURAL = 2'b11;
 
-    // Exception handling logic
+    // Shared control signals for area optimization
+    reg [1:0] shared_control;
+    reg [2:0] shared_state;
+    reg [1:0] shared_mode;
+    
+    // Optimized state encoding
+    // Combined state register to reduce area
+    reg [3:0] combined_state;
+    // Bit assignments:
+    // [3] - Active state
+    // [2] - Exception state
+    // [1:0] - Operation mode
+    
+    // Resource sharing for common operations
+    reg [31:0] shared_operand;
+    reg [1:0] shared_result;
+    
+    // Optimized register usage
+    // Reuse registers for multiple purposes
+    reg [31:0] shared_register;
+    reg [1:0] shared_flags;
+    
+    // Efficient state encoding constants
+    localparam STATE_IDLE = 4'b0000;
+    localparam STATE_ACTIVE = 4'b1000;
+    localparam STATE_EXCEPTION = 4'b0100;
+    localparam STATE_CACHE = 4'b0010;
+    localparam STATE_BRANCH = 4'b0001;
+    
+    // Operation mode encoding
+    localparam MODE_NORMAL = 2'b00;
+    localparam MODE_LOW_POWER = 2'b01;
+    localparam MODE_DEBUG = 2'b10;
+    localparam MODE_TEST = 2'b11;
+
+    // Exception handling logic with area optimization
     always @(posedge clk) begin
         if (rst) begin
+            // Reset all state registers
+            combined_state <= STATE_IDLE;
+            shared_control <= 2'b00;
+            shared_state <= 3'b000;
+            shared_mode <= MODE_NORMAL;
+            shared_operand <= 32'b0;
+            shared_result <= 2'b00;
+            shared_register <= 32'b0;
+            shared_flags <= 2'b00;
+            
             // Reset all exception-related signals
             exception_active <= 0;
             exception_type <= 0;
@@ -206,15 +298,81 @@ module exception_handler(
             last_branch_target <= 0;
             last_prediction_confidence <= 0;
             rsb_pointer <= 0;
+            
+            // Reset power management signals
+            power_state <= POWER_ACTIVE;
+            activity_counter <= 0;
+            power_domain_state <= DOMAIN_MAIN;
+            clock_gated <= 0;
+            power_gated <= 0;
+            module_active <= 1;
+            current_power_mode <= 2'b00;
+            sleep_mode <= 0;
+            power_gate_control <= 0;
+            clock_gate_control <= 0;
         end else begin
-            // Default values
-            restore_checkpoint <= 0;
-            clear_speculative <= 0;
-            cache_coherence_req <= 0;
-            dependency_stall <= 0;
-            btb_update <= 0;
-            rsb_push <= 0;
-            rsb_pop <= 0;
+            // Resource sharing for common operations
+            shared_operand <= (cache_miss_addr | branch_target | return_address);
+            shared_result <= (cache_operation | dependency_type | instruction_type);
+            
+            // Optimized state management
+            case (combined_state)
+                STATE_IDLE: begin
+                    if (exception_active || cache_stall || branch_mispredict) begin
+                        combined_state <= STATE_ACTIVE;
+                        shared_control <= 2'b11;
+                    end
+                end
+                
+                STATE_ACTIVE: begin
+                    if (exception_active) begin
+                        combined_state <= STATE_EXCEPTION;
+                        shared_mode <= MODE_DEBUG;
+                    end else if (cache_stall) begin
+                        combined_state <= STATE_CACHE;
+                        shared_mode <= MODE_NORMAL;
+                    end else if (branch_mispredict) begin
+                        combined_state <= STATE_BRANCH;
+                        shared_mode <= MODE_NORMAL;
+                    end
+                end
+                
+                STATE_EXCEPTION: begin
+                    // Handle exception with shared resources
+                    shared_register <= exception_pc;
+                    shared_flags <= exception_type[1:0];
+                    if (!exception_active) begin
+                        combined_state <= STATE_IDLE;
+                    end
+                end
+                
+                STATE_CACHE: begin
+                    // Handle cache operations with shared resources
+                    shared_register <= cache_addr;
+                    shared_flags <= cache_operation;
+                    if (!cache_stall) begin
+                        combined_state <= STATE_IDLE;
+                    end
+                end
+                
+                STATE_BRANCH: begin
+                    // Handle branch operations with shared resources
+                    shared_register <= correct_pc;
+                    shared_flags <= prediction_confidence;
+                    if (!branch_mispredict) begin
+                        combined_state <= STATE_IDLE;
+                    end
+                end
+            endcase
+            
+            // Optimized control signal generation
+            shared_control <= {
+                (combined_state == STATE_ACTIVE),
+                (combined_state != STATE_IDLE)
+            };
+            
+            // Efficient mode selection
+            shared_mode <= (power_mode) ? MODE_LOW_POWER : MODE_NORMAL;
             
             // Handle branch prediction
             if (instruction_type == TYPE_BRANCH) begin
@@ -378,7 +536,106 @@ module exception_handler(
                     next_issue_slot <= current_issue_slot + 1;
                 end
             end
+
+            // Power management state machine
+            case (power_state)
+                POWER_ACTIVE: begin
+                    if (sleep_request) begin
+                        power_state <= POWER_SLEEP;
+                        sleep_mode <= 1;
+                        clock_gate_control <= 1;
+                    end else if (!module_active) begin
+                        power_state <= POWER_IDLE;
+                        clock_gate_control <= 1;
+                    end
+                end
+                
+                POWER_IDLE: begin
+                    if (module_active) begin
+                        power_state <= POWER_ACTIVE;
+                        clock_gate_control <= 0;
+                    end else if (sleep_request) begin
+                        power_state <= POWER_SLEEP;
+                        sleep_mode <= 1;
+                    end
+                end
+                
+                POWER_SLEEP: begin
+                    if (!sleep_request) begin
+                        power_state <= POWER_ACTIVE;
+                        sleep_mode <= 0;
+                        clock_gate_control <= 0;
+                    end
+                end
+                
+                POWER_OFF: begin
+                    if (power_gate_enable) begin
+                        power_state <= POWER_ACTIVE;
+                        power_gate_control <= 0;
+                    end
+                end
+            endcase
+            
+            // Update activity counter
+            if (module_active) begin
+                activity_counter <= activity_counter + 1;
+            end else begin
+                activity_counter <= 0;
+            end
+            
+            // Power domain control
+            case (power_domain)
+                DOMAIN_ALWAYS_ON: begin
+                    power_domain_state <= DOMAIN_ALWAYS_ON;
+                    clock_gate_control <= 0;
+                end
+                DOMAIN_MAIN: begin
+                    if (power_mode) begin
+                        power_domain_state <= DOMAIN_MAIN;
+                        clock_gate_control <= !module_active;
+                    end
+                end
+                DOMAIN_PERIPHERAL: begin
+                    if (power_mode) begin
+                        power_domain_state <= DOMAIN_PERIPHERAL;
+                        clock_gate_control <= !module_active;
+                    end
+                end
+                DOMAIN_DEBUG: begin
+                    power_domain_state <= DOMAIN_DEBUG;
+                    clock_gate_control <= !module_active;
+                end
+            endcase
+            
+            // Dynamic power management
+            if (power_mode) begin
+                // Low power mode
+                if (activity_counter > 8) begin
+                    module_active <= 0;
+                    clock_gate_control <= 1;
+                end
+            end else begin
+                // Normal power mode
+                module_active <= 1;
+                clock_gate_control <= 0;
+            end
         end
+    end
+
+    // Optimized output assignments
+    always @(*) begin
+        // Use shared resources for output generation
+        exception_pc = shared_register;
+        exception_type = {1'b0, shared_flags};
+        cache_addr = shared_register;
+        cache_operation = shared_flags;
+        predicted_pc = shared_register;
+        prediction_confidence = shared_flags;
+        
+        // Use shared control signals
+        pipeline_flush = shared_control[1];
+        cache_stall = shared_control[0];
+        module_active = (combined_state == STATE_ACTIVE);
     end
 
 endmodule 
