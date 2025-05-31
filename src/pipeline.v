@@ -92,11 +92,83 @@ module pipeline(
     wire [31:0] exception_pc;
     wire exception_active;
     wire pipeline_flush;
+    
+    // Memory Protection Unit
+    wire mpu_access_violation;
+    wire [2:0] mpu_violation_type;
+    wire [31:0] mpu_violation_addr;
+    wire [1:0] mpu_violation_perm;
+    
+    // Memory region configuration
+    reg [31:0] region_base [0:7];
+    reg [31:0] region_size [0:7];
+    reg [2:0] region_perm [0:7];
+    
+    // Initialize memory regions
+    initial begin
+        // Code region (read/execute)
+        region_base[0] = 32'h00000000;
+        region_size[0] = 32'h00010000;
+        region_perm[0] = 3'b101; // Read/Execute
+        
+        // Data region (read/write)
+        region_base[1] = 32'h00010000;
+        region_size[1] = 32'h00010000;
+        region_perm[1] = 3'b011; // Read/Write
+        
+        // Stack region (read/write)
+        region_base[2] = 32'h7FFFFFFF;
+        region_size[2] = 32'h00010000;
+        region_perm[2] = 3'b011; // Read/Write
+        
+        // I/O region (read/write, supervisor only)
+        region_base[3] = 32'h80000000;
+        region_size[3] = 32'h00010000;
+        region_perm[3] = 3'b111; // All permissions (supervisor only)
+        
+        // Other regions unused
+        for (int i = 4; i < 8; i++) begin
+            region_base[i] = 32'h00000000;
+            region_size[i] = 32'h00000000;
+            region_perm[i] = 3'b000; // No permissions
+        end
+    end
+    
+    // Current privilege level (default to user mode)
+    reg [1:0] current_privilege = 2'b00;
+    
+    // Memory Protection Unit instantiation
+    memory_protection_unit mpu_unit(
+        .clk(clk1),
+        .rst(rst),
+        .access_addr(EX_MEM_ALUOut),
+        .access_type(EX_MEM_type == 3'b010 ? 2'b00 : // Read
+                    EX_MEM_type == 3'b011 ? 2'b01 : // Write
+                    2'b10),                         // Execute
+        .privilege_level(current_privilege),
+        .region_base(region_base),
+        .region_size(region_size),
+        .region_perm(region_perm),
+        .access_violation(mpu_access_violation),
+        .violation_type(mpu_violation_type),
+        .violation_addr(mpu_violation_addr),
+        .violation_perm(mpu_violation_perm)
+    );
+    
+    // Update exception handler instantiation
     exception_handler except_unit(
         .clk(clk1),
         .rst(rst),
         .ID_EX_IR(ID_EX_IR),
         .PC(PC),
+        .branch_mispredict(branch_mispredict),
+        .correct_pc(correct_pc),
+        .checkpoint_id(checkpoint_id),
+        .checkpoint_valid(checkpoint_valid),
+        .mpu_access_violation(mpu_access_violation),
+        .mpu_violation_type(mpu_violation_type),
+        .mpu_violation_addr(mpu_violation_addr),
+        .mpu_violation_perm(mpu_violation_perm),
         .exception_type(exception_type),
         .exception_pc(exception_pc),
         .exception_active(exception_active),

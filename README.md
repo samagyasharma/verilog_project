@@ -1,6 +1,6 @@
 # Enhanced MIPS32 Pipeline Implementation
 
-This project implements a sophisticated MIPS32 pipeline processor with advanced features for high-performance computing. The implementation is modular and includes several modern processor features that enhance performance and reliability.
+This project implements a sophisticated MIPS32 pipeline processor with advanced features for high-performance computing. The implementation is modular and includes several modern processor features that enhance performance, reliability, and security.
 
 ## Project Structure
 
@@ -13,7 +13,8 @@ verilog_project/
 │   │   ├── branch_prediction_unit.v
 │   │   ├── cache_interface.v
 │   │   ├── performance_monitor.v
-│   │   └── exception_handler.v
+│   │   ├── exception_handler.v
+│   │   └── memory_protection_unit.v
 │   ├── pipeline.v
 │   └── test_bench.v
 └── README.md
@@ -68,6 +69,39 @@ verilog_project/
 - Trap instruction support
 - Exception vector table
 - Pipeline flush control
+- Memory protection violation handling
+
+#### Memory Protection Unit (`memory_protection_unit.v`)
+- **Region-Based Memory Protection**
+  - 8 configurable memory regions
+  - Flexible region size and base address configuration
+  - Granular access control per region
+  - Support for overlapping regions
+
+- **Access Control**
+  - Read/Write/Execute permissions
+  - Privilege level enforcement (User/Supervisor/Machine)
+  - Permission combinations (Read-Only, Read-Write, Execute-Only)
+  - Supervisor-only regions
+
+- **Memory Regions**
+  - Code Region (Read/Execute): 0x00000000 - 0x0000FFFF
+  - Data Region (Read/Write): 0x00010000 - 0x0001FFFF
+  - Stack Region (Read/Write): 0x7FFFFFFF - 0x7FFFFFFF+FFFF
+  - I/O Region (Supervisor): 0x80000000 - 0x8000FFFF
+  - 4 Additional Configurable Regions
+
+- **Security Features**
+  - Access violation detection
+  - Detailed violation reporting
+  - Privilege level checking
+  - Region boundary enforcement
+
+- **Integration with Exception Handler**
+  - Memory access violation exceptions
+  - Privilege violation handling
+  - Pipeline flush on violations
+  - Exception vector support
 
 ## Implementation Details
 
@@ -81,6 +115,14 @@ verilog_project/
 - Register file (32 registers)
 - Cache memory (256 entries)
 - Main memory (1024 words)
+- Memory Protection Unit with 8 regions:
+  - Code region (Read/Execute)
+  - Data region (Read/Write)
+  - Stack region (Read/Write)
+  - I/O region (Supervisor only)
+  - 4 additional configurable regions
+  - Region-based access control
+  - Privilege level enforcement
 
 ### Instruction Set
 - Arithmetic: ADD, SUB, AND, OR, SLT, MUL
@@ -97,6 +139,13 @@ The test bench (`test_bench.v`) includes comprehensive tests for:
 3. Branch prediction accuracy
 4. Cache hit/miss scenarios
 5. Exception handling
+6. Memory protection violations:
+   - Read access violations
+   - Write access violations
+   - Execute access violations
+   - Privilege level violations
+   - Region boundary violations
+   - Permission combination tests
 
 ## Performance Metrics
 
@@ -106,6 +155,11 @@ The implementation tracks:
 - Branch prediction accuracy
 - Cache hit rate
 - Pipeline efficiency
+- Memory protection violations:
+  - Access violation counts by type
+  - Privilege violation statistics
+  - Region access patterns
+  - Security event logging
 
 ## Usage
 
@@ -129,6 +183,8 @@ vvp pipeline
 - Performance metrics are displayed at the end of simulation
 - Register values are shown for verification
 - Exception events are logged during execution
+- Memory protection violations are reported
+- Security event statistics are displayed
 
 ## Module Descriptions
 
@@ -168,6 +224,31 @@ vvp pipeline
 - Trap instruction support
 - Pipeline control during exceptions
 
+### Memory Protection Unit
+- **Region Management**
+  - Configurable memory regions
+  - Region size and base address control
+  - Permission bit configuration
+  - Region overlap handling
+
+- **Access Control**
+  - Permission checking (Read/Write/Execute)
+  - Privilege level verification
+  - Access violation detection
+  - Detailed violation reporting
+
+- **Security Features**
+  - Memory access protection
+  - Privilege level enforcement
+  - Region boundary checking
+  - Security event logging
+
+- **Integration**
+  - Exception handler interface
+  - Pipeline control signals
+  - Cache interface coordination
+  - Performance monitoring
+
 ## Future Improvements
 
 1. Out-of-order execution
@@ -178,6 +259,11 @@ vvp pipeline
 6. Advanced branch prediction
 7. Power optimization
 8. Area optimization
+9. Enhanced memory protection:
+   - Virtual memory support
+   - Page-level protection
+   - Memory encryption
+   - Secure boot support
 
 ## Contributing
 
@@ -233,7 +319,7 @@ HLT // Halt execution
 • Register	addressing ADD R1,R2,R3  	
 • Immediate	addressing ADDI R1,R2,	200  	
 • Base	addressing LW R5,	150(R7)  	
-– Content	of	a	register	is	added	to	a	“base”	value	to	get	the	operand	address.  	
+– Content	of	a	register	is	added	to	a	"base"	value	to	get	the	operand	address.  	
 • PC	relative	addressing BEQZ R3,	Label  	
 – 16-bit	offset	is	added	to	PC	to	get	the	target	address.  	
 • Pseudo-direct	addressing J Label  	

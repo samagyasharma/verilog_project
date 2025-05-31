@@ -92,6 +92,12 @@ module exception_handler(
     input clock_enable,           // Clock enable signal
     input power_gate_enable,      // Power gating enable
     
+    // Memory Protection Unit inputs
+    input mpu_access_violation,   // Memory access violation detected
+    input [2:0] mpu_violation_type, // Type of memory violation
+    input [31:0] mpu_violation_addr, // Address where violation occurred
+    input [1:0] mpu_violation_perm, // Required permission for access
+    
     output reg [2:0] exception_type,    // Type of exception detected
     output reg [31:0] exception_pc,     // PC value when exception occurred
     output reg exception_active,        // Indicates if an exception is active
@@ -235,6 +241,16 @@ module exception_handler(
     localparam MODE_LOW_POWER = 2'b01;
     localparam MODE_DEBUG = 2'b10;
     localparam MODE_TEST = 2'b11;
+
+    // Exception types
+    localparam EXC_NONE = 3'b000;
+    localparam EXC_SYSCALL = 3'b001;
+    localparam EXC_BREAK = 3'b010;
+    localparam EXC_TRAP = 3'b011;
+    localparam EXC_MEM_READ = 3'b100;  // Memory read violation
+    localparam EXC_MEM_WRITE = 3'b101; // Memory write violation
+    localparam EXC_MEM_EXEC = 3'b110;  // Memory execute violation
+    localparam EXC_MEM_PRIV = 3'b111;  // Memory privilege violation
 
     // Exception handling logic with area optimization
     always @(posedge clk) begin
@@ -486,10 +502,52 @@ module exception_handler(
                 cache_stall <= 0;
             end
 
+            // Handle memory protection violations
+            if (mpu_access_violation) begin
+                case (mpu_violation_type)
+                    3'b001: begin // Read violation
+                        exception_type <= EXC_MEM_READ;
+                        exception_active <= 1;
+                        exception_pc <= PC;
+                        pipeline_flush <= 1;
+                        clear_speculative <= 1;
+                        cache_stall <= 1;
+                        parallel_issue <= 0;
+                    end
+                    3'b010: begin // Write violation
+                        exception_type <= EXC_MEM_WRITE;
+                        exception_active <= 1;
+                        exception_pc <= PC;
+                        pipeline_flush <= 1;
+                        clear_speculative <= 1;
+                        cache_stall <= 1;
+                        parallel_issue <= 0;
+                    end
+                    3'b100: begin // Execute violation
+                        exception_type <= EXC_MEM_EXEC;
+                        exception_active <= 1;
+                        exception_pc <= PC;
+                        pipeline_flush <= 1;
+                        clear_speculative <= 1;
+                        cache_stall <= 1;
+                        parallel_issue <= 0;
+                    end
+                    3'b011: begin // Privilege violation
+                        exception_type <= EXC_MEM_PRIV;
+                        exception_active <= 1;
+                        exception_pc <= PC;
+                        pipeline_flush <= 1;
+                        clear_speculative <= 1;
+                        cache_stall <= 1;
+                        parallel_issue <= 0;
+                    end
+                endcase
+            end
+
             // Check for exceptions in the instruction
             if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001000) begin
                 // SYSCALL exception
-                exception_type <= 3'b001;
+                exception_type <= EXC_SYSCALL;
                 exception_active <= 1;
                 exception_pc <= PC;
                 pipeline_flush <= 1;
@@ -498,7 +556,7 @@ module exception_handler(
                 parallel_issue <= 0;
             end else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001100) begin
                 // BREAK exception
-                exception_type <= 3'b010;
+                exception_type <= EXC_BREAK;
                 exception_active <= 1;
                 exception_pc <= PC;
                 pipeline_flush <= 1;
@@ -507,7 +565,7 @@ module exception_handler(
                 parallel_issue <= 0;
             end else if (ID_EX_IR[31:26] == 6'b000000 && ID_EX_IR[5:0] == 6'b001101) begin
                 // TRAP exception
-                exception_type <= 3'b011;
+                exception_type <= EXC_TRAP;
                 exception_active <= 1;
                 exception_pc <= PC;
                 pipeline_flush <= 1;
