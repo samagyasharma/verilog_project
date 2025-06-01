@@ -14,7 +14,8 @@ verilog_project/
 │   │   ├── cache_interface.v
 │   │   ├── performance_monitor.v
 │   │   ├── exception_handler.v
-│   │   └── memory_protection_unit.v
+│   │   ├── memory_protection_unit.v
+│   │   └── power_management_unit.v
 │   ├── pipeline.v
 │   └── test_bench.v
 └── README.md
@@ -103,6 +104,34 @@ verilog_project/
   - Pipeline flush on violations
   - Exception vector support
 
+#### Power Management Unit (`power_management_unit.v`)
+- **Power States**
+  - Active: Full performance mode
+  - Idle: Reduced power consumption
+  - Sleep: Minimal power usage
+  - Deep Sleep: Ultra-low power mode
+
+- **Power Management Features**
+  - Dynamic power state transitions
+  - Clock gating control
+  - Activity monitoring
+  - Power consumption statistics
+  - Automatic power state management
+
+- **Power Optimization**
+  - Idle detection and management
+  - Cache miss power impact tracking
+  - Branch misprediction power cost
+  - Instruction-based power profiling
+  - Real-time power consumption monitoring
+
+- **Integration**
+  - Pipeline activity monitoring
+  - Cache interface coordination
+  - Branch prediction feedback
+  - Exception handling integration
+  - Performance monitoring interface
+
 ## Implementation Details
 
 ### Pipeline Control
@@ -131,6 +160,13 @@ verilog_project/
 - Branch: BNEQZ, BEQZ
 - System: SYSCALL, BREAK, TRAP
 
+### Power Management
+- Four power states (Active, Idle, Sleep, Deep Sleep)
+- Dynamic power state transitions
+- Clock gating implementation
+- Power consumption tracking
+- Activity-based power management
+
 ## Testing
 
 The test bench (`test_bench.v`) includes comprehensive tests for:
@@ -146,6 +182,12 @@ The test bench (`test_bench.v`) includes comprehensive tests for:
    - Privilege level violations
    - Region boundary violations
    - Permission combination tests
+7. Power management features:
+   - Power state transitions
+   - Clock gating functionality
+   - Power consumption tracking
+   - Activity monitoring
+   - Power optimization effectiveness
 
 ## Performance Metrics
 
@@ -160,6 +202,12 @@ The implementation tracks:
   - Privilege violation statistics
   - Region access patterns
   - Security event logging
+- Power management statistics:
+  - Power state distribution
+  - Power consumption patterns
+  - Clock gating efficiency
+  - Power optimization impact
+  - Energy efficiency metrics
 
 ## Usage
 
@@ -248,6 +296,13 @@ vvp pipeline
   - Pipeline control signals
   - Cache interface coordination
   - Performance monitoring
+
+### Power Management Unit
+- Dynamic power state management
+- Clock gating control
+- Power consumption monitoring
+- Activity-based optimization
+- Energy efficiency tracking
 
 ## Future Improvements
 
